@@ -1,53 +1,42 @@
 import numpy as np
 from core.state import QuantumState
+from solvers.base_solver import BaseSolver
 
-class SplitStepSolver:
-    """Use Split-Step fourier method to solve the  time dependent 1D Schroedinger equation"""
-    def __init__(self,state: QuantumState, dt: float = 0.05):
-        self.state = state
-        self.dt = dt 
-        # pre compute the time evolution operators in order not to compute htem at every time step
-        self._update_operators()
 
-    def _update_operators(self):
+class SplitStepSolver(BaseSolver):
+    """Integratore temporale per l'equazione di Schrödinger 1D
 
-        """Calcola gli operatori di fase per la parte potenziale (U_V)
+    basato sull'algoritmo Split-Step Fourier.
+    """
 
-        e la parte cinetica (U_T).
-        """
-      
-        hbar = self.state.hbar
-        m = self.state.m
-        dt = self.dt
-        # 1. Fase del Potenziale (Spazio Reale x): exp(-i * V(x) * dt / (2 * hbar))
-        # Nota: usiamo dt/2 per lo step diviso (Half-step)
-        self.U_V = np.exp(-1j * self.state.V * (dt / 2.0) / hbar)
+    def __init__(self, state: QuantumState, dt: float = 0.05):
+        # Inizializza la classe base (imposta self.state e self.dt)
+        super().__init__(state, dt)
 
-        # 2. Fase Cinetica (Spazio dei Momenti p): exp(-i * p^2 * dt / (2 * m * hbar))
+        # Pre-calcoliamo gli operatori d'evoluzione temporale
+        # 1. Operatore Potenziale nello spazio delle posizioni (mezzo step: dt / 2)
+        self.exp_V = np.exp(-1j * (self.state.V / self.state.hbar) * (self.dt / 2.0))
 
-        self.U_T = np.exp(-1j * (self.state.p ** 2) * dt / (2.0 * m * hbar))
-
-    def set_dt(self, new_dt: float):
-        """updates time step and recomputes the operators"""
-        self.dt = new_dt
-        self._update_operators()
+        # 2. Operatore Cinetico nello spazio dei momenti (step intero: dt)
+        self.exp_T = np.exp(
+            -1j
+            * ((self.state.p**2) / (2.0 * self.state.m * self.state.hbar))
+            * self.dt
+        )
 
     def step(self):
-        """execute a time step dt for the wave function"""
-        psi = self.state.psi
+        """Avanza lo stato quantistico di un intervallo temporale dt."""
+        # 1. Mezzo step nel potenziale (Spazio x)
+        self.state.psi *= self.exp_V
 
-        # 1. Primo mezzo passo nel potenziale (Spazio Reale)
-        psi = psi * self.U_V
+        # 2. Passaggio allo spazio dei momenti tramite FFT
+        psi_p = np.fft.fft(self.state.psi)
 
-        # 2. Passo completo nell'energia cinetica (Spazio dei Momenti)
-        # Passiamo allo spazio p con la FFT
+        # 3. Step intero nell'energia cinetica (Spazio p)
+        psi_p *= self.exp_T
 
-        psi_p = np.fft.fft(psi)
+        # 4. Ritorno allo spazio delle posizioni tramite IFFT
+        self.state.psi = np.fft.ifft(psi_p)
 
-        psi_p = psi_p * self.U_T
-
-        # Torniamo allo spazio x con la IFFT (Trasformata Inversa)
-        psi = np.fft.ifft(psi_p)
-
-        psi = psi * self.U_V
-        self.state.psi = psi
+        # 5. Mezzo step nel potenziale (Spazio x)
+        self.state.psi *= self.exp_V
