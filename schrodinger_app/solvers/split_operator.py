@@ -51,9 +51,3 @@ class SplitStepSolver:
 
         psi = psi * self.U_V
         self.state.psi = psi
-    
-
-
-    
-
-        
